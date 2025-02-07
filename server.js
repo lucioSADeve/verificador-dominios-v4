@@ -9,7 +9,7 @@ const app = express();
 
 // Configuração do Multer para memória
 const upload = multer({
-    dest: 'uploads/',
+    dest: '/tmp', // Usa pasta temporária da Vercel
     fileFilter: (req, file, cb) => {
         // Aceita apenas arquivos Excel
         if (file.mimetype.includes('spreadsheet') || 
@@ -21,11 +21,6 @@ const upload = multer({
         }
     }
 });
-
-// Certifica que a pasta uploads existe
-if (!fs.existsSync('uploads')) {
-    fs.mkdirSync('uploads');
-}
 
 app.use(express.static('public'));
 app.use(express.json());
