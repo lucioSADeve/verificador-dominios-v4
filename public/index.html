@@ -24,7 +24,7 @@
             margin: 20px 0;
             padding: 10px;
             background: #f0f0f0;
-            border-radius: 4px;
+            border-radius: 4px;                                                                                         
         }
         .download-button {
             display: inline-block;
@@ -72,110 +72,79 @@
         let progressWorker;
         let lastProgress = 0;
 
-        // Inicializa o Web Worker
-        function initWorker() {
+        // Função para verificar o progresso diretamente (fallback)
+        async function checkProgressDirectly() {
             try {
-                if (typeof(Worker) !== "undefined") {
-                    if (!progressWorker) {
-                        console.log('Iniciando Web Worker...');
-                        progressWorker = new Worker('/progressWorker.js');
-                        
-                        progressWorker.onmessage = function(e) {
-                            const data = e.data;
-                            console.log('Mensagem recebida do Worker:', data);
-                            
-                            if (data.error) {
-                                console.error('Erro:', data.error);
-                                loading.style.display = 'none';
-                                progress.innerHTML = `
-                                    <p style="color: red">
-                                        Erro no processamento: ${data.error}<br>
-                                        ${data.details ? `Detalhes: ${data.details}` : ''}
-                                    </p>
-                                `;
-                                stopWorker();
-                                return;
-                            }
+                const response = await fetch('https://verificadorv5.vercel.app/api/progress');
+                const data = await response.json();
+                
+                if (data.total > 0) {
+                    const percent = Math.round((data.processed / data.total) * 100);
+                    progress.innerHTML = `
+                        <div class="spinner"></div>
+                        Progresso: ${percent}%<br>
+                        Processados: ${data.processed} de ${data.total}<br>
+                        Disponíveis: ${data.available || 0}
+                    `;
 
-                            if (data.total > 0) {
-                                const percent = Math.round((data.processed / data.total) * 100);
-                                
-                                if (Math.abs(percent - lastProgress) >= 1) {
-                                    lastProgress = percent;
-                                    progress.innerHTML = `
-                                        <div class="spinner"></div>
-                                        Progresso: ${percent}%<br>
-                                        Processados: ${data.processed} de ${data.total}<br>
-                                        Disponíveis: ${data.available || 0}
-                                    `;
-                                }
-
-                                if (data.processed === data.total) {
-                                    stopWorker();
-                                    showDownloadButton();
-                                }
-                            }
-                        };
-
-                        progressWorker.onerror = function(error) {
-                            console.error('Erro no Worker:', error);
-                            loading.style.display = 'none';
-                            progress.innerHTML = `
-                                <p style="color: red">
-                                    Erro no processamento: ${error.message}<br>
-                                    ${error.filename}:${error.lineno}
-                                </p>
-                            `;
-                            stopWorker();
-                        };
-
+                    if (data.processed === data.total) {
+                        showDownloadButton();
                         return true;
                     }
-                } else {
-                    throw new Error('Seu navegador não suporta Web Workers');
                 }
-            } catch (error) {
-                console.error('Erro ao iniciar Worker:', error);
-                loading.style.display = 'none';
-                progress.innerHTML = `
-                    <p style="color: red">
-                        Erro ao iniciar processamento: ${error.message || 'Erro desconhecido'}
-                    </p>
-                `;
                 return false;
+            } catch (error) {
+                console.error('Erro ao verificar progresso:', error);
+                progress.innerHTML = `<p style="color: red">Erro ao verificar progresso: ${error.message}</p>`;
+                return true;
             }
         }
 
-        function stopWorker() {
-            if (progressWorker) {
+        // Inicializa o monitoramento
+        function startMonitoring() {
+            let attempts = 0;
+            const maxAttempts = 3;
+
+            const checkInterval = setInterval(async () => {
                 try {
-                    progressWorker.postMessage('stop');
-                    progressWorker.terminate();
+                    const isDone = await checkProgressDirectly();
+                    if (isDone) {
+                        clearInterval(checkInterval);
+                    }
                 } catch (error) {
-                    console.error('Erro ao parar worker:', error);
-                } finally {
-                    progressWorker = undefined;
+                    attempts++;
+                    console.error(`Erro na tentativa ${attempts}:`, error);
+                    
+                    if (attempts >= maxAttempts) {
+                        clearInterval(checkInterval);
+                        progress.innerHTML = `<p style="color: red">Erro: Falha ao verificar progresso após ${maxAttempts} tentativas</p>`;
+                    }
                 }
-            }
+            }, 3000);
+
+            // Timeout global
+            setTimeout(() => {
+                clearInterval(checkInterval);
+                if (!results.innerHTML.includes('Processamento concluído')) {
+                    progress.innerHTML = `<p style="color: red">Erro: Tempo limite de processamento excedido</p>`;
+                }
+            }, 300000); // 5 minutos de timeout
         }
 
         function showDownloadButton() {
             results.innerHTML = `
                 <h3>Processamento concluído!</h3>
-                <a href="/api/download-results" class="download-button">
+                <a href="https://verificadorv5.vercel.app/api/download-results" class="download-button">
                     Baixar Domínios Disponíveis
                 </a>
             `;
+            loading.style.display = 'none';
         }
 
         fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
-            // Reset do estado
-            stopWorker();
-            lastProgress = 0;
-            
             console.log('Arquivo selecionado:', file.name);
             const formData = new FormData();
             formData.append('file', file);
@@ -188,7 +157,6 @@
             results.innerHTML = '';
 
             try {
-                console.log('Enviando arquivo...');
                 const response = await fetch('https://verificadorv5.vercel.app/api/upload-excel', {
                     method: 'POST',
                     body: formData
@@ -205,12 +173,8 @@
                     throw new Error(data.error);
                 }
 
-                if (initWorker()) {
-                    console.log('Worker iniciado, começando monitoramento...');
-                    progressWorker.postMessage('start');
-                    // Adiciona timeout
-                    addWorkerTimeout();
-                }
+                // Inicia o monitoramento
+                startMonitoring();
 
             } catch (erro) {
                 console.error('Erro:', erro);
@@ -221,30 +185,13 @@
                 `;
                 loading.style.display = 'none';
                 progress.innerHTML = '';
-                stopWorker();
             }
         });
 
-        // Adiciona timeout para o Worker
-        function addWorkerTimeout() {
-            setTimeout(() => {
-                if (progressWorker && lastProgress === 0) {
-                    console.log('Timeout do Worker - Nenhum progresso detectado');
-                    stopWorker();
-                    loading.style.display = 'none';
-                    progress.innerHTML = `<p style="color: red">Erro: Tempo limite de processamento excedido</p>`;
-                }
-            }, 30000); // 30 segundos de timeout
-        }
-
-        window.addEventListener('beforeunload', () => {
-            stopWorker();
-        });
-
-        // Adiciona tratamento de erro global
+        // Tratamento de erro global
         window.addEventListener('error', function(event) {
             console.error('Erro global:', event.error);
-            progress.innerHTML = `<p style="color: red">Erro inesperado: ${event.error.message}</p>`;
+            progress.innerHTML = `<p style="color: red">Erro inesperado: ${event.error?.message || 'Erro desconhecido'}</p>`;
         });
     </script>
 </body>
