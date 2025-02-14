@@ -6,46 +6,52 @@ self.onmessage = function(e) {
     console.log('Mensagem recebida no Worker:', e.data);
     
     if (e.data === 'start') {
-        console.log('Iniciando intervalo de verificação');
-        checkProgress(); // Chama imediatamente pela primeira vez
-        progressInterval = setInterval(checkProgress, 2000);
+        console.log('Iniciando verificação de progresso');
+        checkProgress(); // Primeira verificação imediata
+        progressInterval = setInterval(checkProgress, 3000);
     } else if (e.data === 'stop') {
-        console.log('Parando intervalo de verificação');
+        console.log('Parando verificação');
         clearInterval(progressInterval);
     }
 };
 
 async function checkProgress() {
     try {
-        console.log('Verificando progresso...');
-        const response = await fetch('https://verificadorv5.vercel.app/api/progress', {
+        console.log('Fazendo requisição de progresso...');
+        const response = await fetch('/api/progress', {
             method: 'GET',
             headers: {
-                'Accept': 'application/json'
-            }
+                'Accept': 'application/json',
+                'Cache-Control': 'no-cache'
+            },
+            credentials: 'same-origin'
         });
         
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error(`Erro HTTP: ${response.status}`);
         }
         
         const data = await response.json();
-        console.log('Dados de progresso:', data);
+        console.log('Dados recebidos:', data);
         
         if (!data) {
-            throw new Error('Dados de progresso inválidos');
+            throw new Error('Nenhum dado recebido do servidor');
         }
         
         self.postMessage(data);
     } catch (error) {
-        console.error('Erro ao verificar progresso:', error);
-        self.postMessage({ error: error.message });
-        clearInterval(progressInterval);
+        console.error('Erro na verificação:', error);
+        self.postMessage({ 
+            error: `Erro ao verificar progresso: ${error.message}`,
+            details: error.stack
+        });
     }
 }
 
 self.onerror = function(error) {
     console.error('Erro no Worker:', error);
-    self.postMessage({ error: error.message });
-    clearInterval(progressInterval);
+    self.postMessage({ 
+        error: 'Erro interno no Worker',
+        details: error.message
+    });
 }; 
