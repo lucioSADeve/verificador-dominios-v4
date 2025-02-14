@@ -8,6 +8,15 @@ const os = require('os');
 
 const app = express();
 
+// Configuração para servir arquivos estáticos
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json());
+
+// Rota principal - deve vir depois do express.static
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // Configuração otimizada para ambiente serverless
 const numWorkers = process.env.VERCEL ? 1 : Math.max(2, os.cpus().length);
 const BATCH_SIZE = 50;
@@ -30,9 +39,6 @@ const upload = multer({
         }
     }
 });
-
-app.use(express.static('public'));
-app.use(express.json());
 
 // Cache em memória para resultados
 const resultsCache = new Map();
