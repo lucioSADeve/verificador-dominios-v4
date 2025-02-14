@@ -38,6 +38,19 @@
         .loading {
             display: none;
         }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 10px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -56,27 +69,59 @@
         const loading = document.querySelector('.loading');
         const progress = document.querySelector('.progress');
         const results = document.querySelector('.results');
-        let checkProgressInterval;
+        let progressWorker;
+        let lastProgress = 0;
 
-        function updateProgress() {
-            fetch('/api/progress')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.total > 0) {
-                        const percent = Math.round((data.processed / data.total) * 100);
-                        progress.innerHTML = `
-                            Progresso: ${percent}%<br>
-                            Processados: ${data.processed} de ${data.total}<br>
-                            Disponíveis: ${data.available}
-                        `;
+        // Inicializa o Web Worker
+        function initWorker() {
+            if (typeof(Worker) !== "undefined") {
+                if (!progressWorker) {
+                    progressWorker = new Worker('progressWorker.js');
+                    progressWorker.onmessage = handleWorkerMessage;
+                }
+            } else {
+                console.error('Web Workers não são suportados neste navegador');
+            }
+        }
 
-                        if (data.processed === data.total) {
-                            clearInterval(checkProgressInterval);
-                            showDownloadButton();
-                        }
-                    }
-                })
-                .catch(error => console.error('Erro:', error));
+        // Manipula as mensagens do Worker
+        function handleWorkerMessage(e) {
+            const data = e.data;
+            
+            if (data.error) {
+                console.error('Erro:', data.error);
+                stopWorker();
+                return;
+            }
+
+            if (data.total > 0) {
+                const percent = Math.round((data.processed / data.total) * 100);
+                
+                // Só atualiza se houver mudança significativa
+                if (Math.abs(percent - lastProgress) >= 1) {
+                    lastProgress = percent;
+                    progress.innerHTML = `
+                        <div class="spinner"></div>
+                        Progresso: ${percent}%<br>
+                        Processados: ${data.processed} de ${data.total}<br>
+                        Disponíveis: ${data.available}
+                    `;
+                }
+
+                if (data.processed === data.total) {
+                    stopWorker();
+                    showDownloadButton();
+                }
+            }
+        }
+
+        // Para o Worker
+        function stopWorker() {
+            if (progressWorker) {
+                progressWorker.postMessage('stop');
+                progressWorker.terminate();
+                progressWorker = undefined;
+            }
         }
 
         function showDownloadButton() {
@@ -96,7 +141,10 @@
             formData.append('file', file);
 
             loading.style.display = 'block';
-            progress.innerHTML = 'Iniciando processamento...';
+            progress.innerHTML = `
+                <div class="spinner"></div>
+                Iniciando processamento...
+            `;
             results.innerHTML = '';
 
             try {
@@ -111,12 +159,20 @@
                     throw new Error(data.error);
                 }
 
-                checkProgressInterval = setInterval(updateProgress, 1000);
+                // Inicia o Worker para monitorar o progresso
+                initWorker();
+                progressWorker.postMessage('start');
 
             } catch (erro) {
                 results.innerHTML = `<p style="color: red">Erro: ${erro.message}</p>`;
                 loading.style.display = 'none';
+                stopWorker();
             }
+        });
+
+        // Limpa o Worker quando a página é fechada
+        window.addEventListener('beforeunload', () => {
+            stopWorker();
         });
     </script>
 </body>
