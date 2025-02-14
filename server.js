@@ -4,14 +4,18 @@ const XLSX = require('xlsx');
 const path = require('path');
 const domainQueue = require('./domainQueue');
 const fs = require('fs');
+const { Worker } = require('worker_threads');
+const os = require('os');
 
 const app = express();
 
-// Configuração do Multer para memória
+// Configuração do Multer com buffer de memória
 const upload = multer({
-    dest: '/tmp', // Usa pasta temporária da Vercel
+    storage: multer.memoryStorage(), // Usa memória ao invés de disco
+    limits: {
+        fileSize: 10 * 1024 * 1024 // Limite de 10MB
+    },
     fileFilter: (req, file, cb) => {
-        // Aceita apenas arquivos Excel
         if (file.mimetype.includes('spreadsheet') || 
             file.mimetype.includes('excel') ||
             file.originalname.match(/\.(xlsx|xls)$/)) {
@@ -25,6 +29,42 @@ const upload = multer({
 app.use(express.static('public'));
 app.use(express.json());
 
+// Número de workers baseado nos CPUs disponíveis
+const numWorkers = Math.max(1, os.cpus().length - 1);
+const workers = new Map();
+
+// Função para processar domínios em paralelo
+async function processDomainsBatch(domains) {
+    const batchSize = Math.ceil(domains.length / numWorkers);
+    const workerPromises = [];
+
+    for (let i = 0; i < numWorkers; i++) {
+        const start = i * batchSize;
+        const end = Math.min(start + batchSize, domains.length);
+        const domainBatch = domains.slice(start, end);
+
+        if (domainBatch.length > 0) {
+            const worker = new Worker('./domainWorker.js');
+            const workerId = `worker-${i}`;
+            workers.set(workerId, worker);
+
+            workerPromises.push(
+                new Promise((resolve, reject) => {
+                    worker.on('message', (result) => {
+                        resolve(result);
+                        worker.terminate();
+                        workers.delete(workerId);
+                    });
+                    worker.on('error', reject);
+                    worker.postMessage(domainBatch);
+                })
+            );
+        }
+    }
+
+    return Promise.all(workerPromises);
+}
+
 // Rota principal
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -35,49 +75,45 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
     console.log('Iniciando upload...');
     
     if (!req.file) {
-        console.log('Nenhum arquivo recebido');
         return res.status(400).json({ error: 'Nenhum arquivo enviado' });
     }
 
     try {
         console.log('Processando arquivo:', req.file.originalname);
         
-        const workbook = XLSX.readFile(req.file.path);
+        // Lê o arquivo diretamente do buffer de memória
+        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
         
+        // Otimiza a leitura do Excel
         const data = XLSX.utils.sheet_to_json(firstSheet, {
             header: 1,
             defval: '',
-            raw: true
+            raw: true,
+            blankrows: false
         });
 
-        console.log('Dados brutos:', data);
-
-        // Filtra e mantém os dados da coluna A junto com o domínio
-        const domains = data
-            .filter(row => row[1] && row[1].toString().trim()) // Verifica se tem domínio na coluna B
-            .map(row => ({
-                colA: (row[0] || '').toString().trim(), // Coluna A
-                domain: row[1].toString().trim().toLowerCase() // Coluna B (domínio)
-            }))
-            .filter(item => item.domain.endsWith('.br') || item.domain.endsWith('.com.br'));
-
-        console.log('Domínios para verificar:', domains);
-
-        // Limpa o arquivo após processamento
-        if (req.file.path) {
-            try {
-                fs.unlinkSync(req.file.path);
-            } catch (e) {
-                console.error('Erro ao limpar arquivo:', e);
+        // Otimiza o processamento dos dados
+        const domains = data.reduce((acc, row) => {
+            if (row[1] && typeof row[1] === 'string') {
+                const domain = row[1].trim().toLowerCase();
+                if (domain.endsWith('.br') || domain.endsWith('.com.br')) {
+                    acc.push({
+                        colA: (row[0] || '').toString().trim(),
+                        domain: domain
+                    });
+                }
             }
-        }
+            return acc;
+        }, []);
 
         if (domains.length === 0) {
             throw new Error('Nenhum domínio .br ou .com.br encontrado na coluna B');
         }
 
+        // Processa os domínios em lotes paralelos
         domainQueue.addDomains(domains);
+        processDomainsBatch(domains).catch(console.error);
         
         res.json({ 
             message: `${domains.length} domínios adicionados à fila`,
@@ -85,13 +121,6 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
         });
     } catch (error) {
         console.error('Erro ao processar arquivo:', error);
-        if (req.file && req.file.path) {
-            try {
-                fs.unlinkSync(req.file.path);
-            } catch (e) {
-                console.error('Erro ao limpar arquivo:', e);
-            }
-        }
         res.status(500).json({ 
             error: 'Erro ao processar arquivo',
             details: error.message 
@@ -99,30 +128,42 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
     }
 });
 
-// Rota para verificar progresso
+// Otimiza a rota de progresso com cache
+const progressCache = {
+    lastUpdate: 0,
+    data: null,
+    ttl: 500 // 500ms de cache
+};
+
 app.get('/api/progress', (req, res) => {
+    const now = Date.now();
+    if (progressCache.data && (now - progressCache.lastUpdate) < progressCache.ttl) {
+        return res.json(progressCache.data);
+    }
+
     const progress = domainQueue.getProgress();
-    console.log('Progresso atual:', progress);
+    progressCache.data = progress;
+    progressCache.lastUpdate = now;
     res.json(progress);
 });
 
-// Rota para baixar resultados
+// Otimiza a geração do arquivo de resultados
 app.get('/api/download-results', (req, res) => {
     try {
         const wb = XLSX.utils.book_new();
         const ws = XLSX.utils.json_to_sheet(
-            domainQueue.results.available.map(item => ({
-                'Coluna A': item.colA,
-                'Dominio': item.domain
+            domainQueue.results.available.map(({ colA, domain }) => ({
+                'Coluna A': colA,
+                'Dominio': domain
             }))
         );
         
         XLSX.utils.book_append_sheet(wb, ws, "Dominios Disponíveis");
         
-        const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-        
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', 'attachment; filename="dominios_disponiveis.xlsx"');
+        
+        const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
         res.send(buffer);
     } catch (error) {
         console.error('Erro ao gerar arquivo:', error);
@@ -132,5 +173,11 @@ app.get('/api/download-results', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Servidor rodando na porta ${PORT}`);
+    console.log(`Servidor rodando na porta ${PORT} com ${numWorkers} workers`);
+});
+
+// Limpa workers ao encerrar
+process.on('SIGTERM', () => {
+    workers.forEach(worker => worker.terminate());
+    process.exit(0);
 });
