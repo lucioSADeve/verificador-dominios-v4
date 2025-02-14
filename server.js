@@ -5,21 +5,20 @@ const path = require('path');
 const domainQueue = require('./domainQueue');
 const { Worker } = require('worker_threads');
 const os = require('os');
-const cluster = require('cluster');
 
 const app = express();
 
-// Aumenta o número de workers e otimiza o processamento
-const numWorkers = Math.max(2, os.cpus().length);
-const BATCH_SIZE = 50; // Processa 50 domínios por vez
+// Configuração otimizada para ambiente serverless
+const numWorkers = process.env.VERCEL ? 1 : Math.max(2, os.cpus().length);
+const BATCH_SIZE = 50;
 const workers = new Map();
-const CONCURRENT_CHECKS = 10; // Número de verificações simultâneas
+const CONCURRENT_CHECKS = 10;
 
 // Configuração otimizada do Multer
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: {
-        fileSize: 20 * 1024 * 1024 // Aumenta para 20MB
+        fileSize: 20 * 1024 * 1024
     },
     fileFilter: (req, file, cb) => {
         if (file.mimetype.includes('spreadsheet') || 
@@ -38,7 +37,7 @@ app.use(express.json());
 // Cache em memória para resultados
 const resultsCache = new Map();
 
-// Função otimizada para processar domínios em paralelo
+// Função otimizada para processar domínios
 async function processDomainsBatch(domains) {
     const chunks = [];
     for (let i = 0; i < domains.length; i += BATCH_SIZE) {
@@ -66,11 +65,11 @@ async function processDomainsBatch(domains) {
     return Promise.all(workerPromises);
 }
 
+// Rotas da API
 app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
 
     try {
-        // Otimiza leitura do Excel
         const workbook = XLSX.read(req.file.buffer, { 
             type: 'buffer',
             cellDates: true,
@@ -79,14 +78,12 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
         });
         
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        
-        // Processamento otimizado dos dados
-        const domains = new Set(); // Usa Set para evitar duplicatas
+        const domains = new Set();
         const range = XLSX.utils.decode_range(firstSheet['!ref']);
         
         for (let row = range.s.r; row <= range.e.r; row++) {
-            const cellB = firstSheet[XLSX.utils.encode_cell({r: row, c: 1})]; // Coluna B
-            const cellA = firstSheet[XLSX.utils.encode_cell({r: row, c: 0})]; // Coluna A
+            const cellB = firstSheet[XLSX.utils.encode_cell({r: row, c: 1})];
+            const cellA = firstSheet[XLSX.utils.encode_cell({r: row, c: 0})];
             
             if (cellB && cellB.v) {
                 const domain = cellB.v.toString().trim().toLowerCase();
@@ -105,7 +102,6 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
             throw new Error('Nenhum domínio .br ou .com.br encontrado na coluna B');
         }
 
-        // Inicia processamento em paralelo
         domainQueue.addDomains(uniqueDomains);
         processDomainsBatch(uniqueDomains).catch(console.error);
         
@@ -123,7 +119,7 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
 const progressCache = {
     lastUpdate: 0,
     data: null,
-    ttl: 250 // Reduz para 250ms
+    ttl: 250
 };
 
 app.get('/api/progress', (req, res) => {
@@ -138,12 +134,11 @@ app.get('/api/progress', (req, res) => {
     res.json(progress);
 });
 
-// Download otimizado
 app.get('/api/download-results', (req, res) => {
     try {
         const wb = XLSX.utils.book_new();
         const ws = XLSX.utils.aoa_to_sheet([
-            ['Coluna A', 'Dominio'], // Headers
+            ['Coluna A', 'Dominio'],
             ...domainQueue.results.available.map(({ colA, domain }) => [colA, domain])
         ]);
         
@@ -160,27 +155,16 @@ app.get('/api/download-results', (req, res) => {
     }
 });
 
-if (cluster.isMaster) {
-    console.log(`Master ${process.pid} iniciando`);
-    
-    // Fork workers
-    for (let i = 0; i < numWorkers; i++) {
-        cluster.fork();
-    }
-    
-    cluster.on('exit', (worker, code, signal) => {
-        console.log(`Worker ${worker.process.pid} morreu. Reiniciando...`);
-        cluster.fork();
-    });
-} else {
-    const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
-        console.log(`Worker ${process.pid} rodando na porta ${PORT}`);
-    });
-}
+// Configuração da porta
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Servidor rodando na porta ${PORT} com ${numWorkers} worker(s)`);
+});
 
 // Limpeza de recursos
 process.on('SIGTERM', () => {
     workers.forEach(worker => worker.terminate());
     process.exit(0);
 });
+
+module.exports = app;
