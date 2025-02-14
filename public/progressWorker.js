@@ -18,13 +18,13 @@ self.onmessage = function(e) {
 async function checkProgress() {
     try {
         console.log('Fazendo requisição de progresso...');
-        const response = await fetch('/api/progress', {
+        // Usando URL absoluta para a Vercel
+        const response = await fetch('https://verificadorv5.vercel.app/api/progress', {
             method: 'GET',
             headers: {
                 'Accept': 'application/json',
                 'Cache-Control': 'no-cache'
-            },
-            credentials: 'same-origin'
+            }
         });
         
         if (!response.ok) {
@@ -41,17 +41,19 @@ async function checkProgress() {
         self.postMessage(data);
     } catch (error) {
         console.error('Erro na verificação:', error);
+        clearInterval(progressInterval); // Para o intervalo em caso de erro
         self.postMessage({ 
-            error: `Erro ao verificar progresso: ${error.message}`,
-            details: error.stack
+            error: error.message || 'Erro ao verificar progresso',
+            details: error.stack || 'Detalhes não disponíveis'
         });
     }
 }
 
 self.onerror = function(error) {
     console.error('Erro no Worker:', error);
+    clearInterval(progressInterval); // Para o intervalo em caso de erro
     self.postMessage({ 
-        error: 'Erro interno no Worker',
-        details: error.message
+        error: error.message || 'Erro interno no Worker',
+        details: 'Erro interno durante o processamento'
     });
 }; 
