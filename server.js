@@ -18,10 +18,10 @@ app.get('/', (req, res) => {
 });
 
 // Configuração otimizada para ambiente serverless
-const numWorkers = process.env.VERCEL ? 1 : Math.max(2, os.cpus().length);
-const BATCH_SIZE = 50;
+const numWorkers = process.env.VERCEL ? 2 : Math.max(4, os.cpus().length);
+const BATCH_SIZE = 100;
 const workers = new Map();
-const CONCURRENT_CHECKS = 10;
+const CONCURRENT_CHECKS = 25;
 
 // Configuração otimizada do Multer
 const upload = multer({
@@ -56,19 +56,38 @@ async function processDomainsBatch(domains) {
             const workerId = `worker-${index}`;
             workers.set(workerId, worker);
 
+            // Adiciona timeout para o worker
+            const timeout = setTimeout(() => {
+                worker.terminate();
+                reject(new Error('Worker timeout'));
+            }, 30000); // 30 segundos de timeout
+
             worker.on('message', (result) => {
+                clearTimeout(timeout);
                 resultsCache.set(workerId, result);
                 resolve(result);
                 worker.terminate();
                 workers.delete(workerId);
             });
 
-            worker.on('error', reject);
-            worker.postMessage({ domains: chunk, concurrent: CONCURRENT_CHECKS });
+            worker.on('error', (error) => {
+                clearTimeout(timeout);
+                reject(error);
+                worker.terminate();
+                workers.delete(workerId);
+            });
+
+            worker.postMessage({ 
+                domains: chunk, 
+                concurrent: CONCURRENT_CHECKS 
+            });
         });
     });
 
-    return Promise.all(workerPromises);
+    return Promise.all(workerPromises.map(p => p.catch(err => {
+        console.error('Erro no worker:', err);
+        return [];
+    })));
 }
 
 // Rotas da API
