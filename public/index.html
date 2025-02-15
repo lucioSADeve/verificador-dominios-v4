@@ -52,12 +52,6 @@
             100% { transform: rotate(360deg); }
         }
     </style>
-    <script>
-        // Solicita permissão para notificações
-        if ('Notification' in window) {
-            Notification.requestPermission();
-        }
-    </script>
 </head>
 <body>
     <h1>Verificador de Domínios</h1>
@@ -76,17 +70,14 @@
         const progress = document.querySelector('.progress');
         const results = document.querySelector('.results');
         let lastProgress = 0;
-        let processId = null;
 
-        // Função para verificar o progresso em background
         async function checkProgressDirectly() {
             try {
                 const response = await fetch('https://verificadorv5.vercel.app/api/progress', {
                     method: 'GET',
                     headers: {
                         'Accept': 'application/json',
-                        'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        'Pragma': 'no-cache'
+                        'Cache-Control': 'no-cache'
                     }
                 });
                 
@@ -99,27 +90,11 @@
                         <strong>Progresso: ${percent}%</strong><br>
                         Processados: ${data.processed} de ${data.total}<br>
                         Disponíveis: ${data.available || 0}<br>
-                        <small>Você pode fechar esta página, o processamento continuará em segundo plano.</small>
+                        <small>Tempo estimado: ${Math.ceil((data.total - data.processed) / (data.processed || 1) * 1)} segundos</small>
                     `;
-
-                    // Salva o progresso no localStorage
-                    localStorage.setItem('domainProgress', JSON.stringify({
-                        processId,
-                        percent,
-                        processed: data.processed,
-                        total: data.total,
-                        available: data.available
-                    }));
 
                     if (data.processed === data.total) {
                         showDownloadButton();
-                        // Notifica o usuário quando terminar
-                        if (Notification.permission === "granted") {
-                            new Notification("Processamento Concluído!", {
-                                body: `${data.available} domínios disponíveis encontrados.`,
-                                icon: "/favicon.ico"
-                            });
-                        }
                         return true;
                     }
                 }
@@ -131,19 +106,6 @@
             }
         }
 
-        // Verifica se há um processamento em andamento ao carregar a página
-        window.addEventListener('load', () => {
-            const savedProgress = localStorage.getItem('domainProgress');
-            if (savedProgress) {
-                const progress = JSON.parse(savedProgress);
-                processId = progress.processId;
-                if (progress.percent < 100) {
-                    startMonitoring();
-                }
-            }
-        });
-
-        // Inicializa o monitoramento
         function startMonitoring() {
             let attempts = 0;
             const maxAttempts = 3;
@@ -153,7 +115,6 @@
                     const isDone = await checkProgressDirectly();
                     if (isDone) {
                         clearInterval(checkInterval);
-                        localStorage.removeItem('domainProgress');
                     }
                 } catch (error) {
                     attempts++;
@@ -166,7 +127,6 @@
                 }
             }, 1000);
 
-            // Timeout global
             setTimeout(() => {
                 clearInterval(checkInterval);
                 if (!results.innerHTML.includes('Processamento concluído')) {
@@ -217,15 +177,6 @@
                     throw new Error(data.error);
                 }
 
-                processId = data.processId; // Novo ID de processo
-                localStorage.setItem('domainProgress', JSON.stringify({
-                    processId,
-                    percent: 0,
-                    processed: 0,
-                    total: data.totalDomains,
-                    available: 0
-                }));
-
                 startMonitoring();
 
             } catch (erro) {
@@ -240,7 +191,6 @@
             }
         });
 
-        // Tratamento de erro global
         window.addEventListener('error', function(event) {
             console.error('Erro global:', event.error);
             progress.innerHTML = `<p style="color: red">Erro inesperado: ${event.error?.message || 'Erro desconhecido'}</p>`;
