@@ -3,15 +3,14 @@ const pLimit = require('p-limit');
 const fetch = require('node-fetch');
 const dns = require('dns').promises;
 
-// Configurações otimizadas
-const CONCURRENT_LIMIT = 50; // Aumentado para 50 verificações simultâneas
-const TIMEOUT = 3000; // Reduzido para 3 segundos
-const RETRY_DELAY = 50; // 50ms entre tentativas
+// Aumenta os limites de processamento
+const CONCURRENT_LIMIT = 100; // Aumentado para 100 verificações simultâneas
+const TIMEOUT = 2000; // Reduzido para 2 segundos
+const RETRY_DELAY = 20; // Reduzido para 20ms
 
 // Função otimizada para verificar domínio
 async function checkDomain(domain) {
     try {
-        // Tenta resolver o domínio com timeout
         await Promise.race([
             dns.resolve(domain),
             new Promise((_, reject) => 
@@ -36,53 +35,45 @@ async function checkDomain(domain) {
     }
 }
 
-// Função otimizada para processar domínios em paralelo
+// Processamento em lotes otimizado
 async function processDomainsParallel(domains) {
     const limit = pLimit(CONCURRENT_LIMIT);
+    const batchSize = 50; // Processa 50 domínios por vez
     const results = [];
-    let processed = 0;
-    const total = domains.length;
-
-    // Processa em lotes com limite de concorrência
-    const promises = domains.map((domain, index) => 
-        limit(async () => {
-            try {
-                const isAvailable = await checkDomain(domain.domain);
-                processed++;
-                
-                // Reporta progresso a cada 5%
-                if (processed % Math.max(1, Math.floor(total * 0.05)) === 0) {
-                    parentPort.postMessage({
-                        type: 'progress',
-                        processed,
-                        total
-                    });
+    
+    for (let i = 0; i < domains.length; i += batchSize) {
+        const batch = domains.slice(i, i + batchSize);
+        const batchPromises = batch.map(domain => 
+            limit(async () => {
+                try {
+                    const isAvailable = await checkDomain(domain.domain);
+                    return {
+                        ...domain,
+                        available: isAvailable
+                    };
+                } catch (error) {
+                    return {
+                        ...domain,
+                        available: false,
+                        error: true
+                    };
                 }
+            })
+        );
 
-                return {
-                    ...domain,
-                    available: isAvailable
-                };
-            } catch (error) {
-                return {
-                    ...domain,
-                    available: false,
-                    error: true
-                };
-            } finally {
-                // Pequena pausa entre verificações
-                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-            }
-        })
-    );
-
-    try {
-        const results = await Promise.all(promises);
-        return results.filter(result => result !== null);
-    } catch (error) {
-        console.error('Erro no processamento:', error);
-        return [];
+        const batchResults = await Promise.all(batchPromises);
+        results.push(...batchResults);
+        
+        // Reporta progresso
+        parentPort.postMessage({
+            type: 'progress',
+            processed: results.length,
+            total: domains.length,
+            available: results.filter(r => r.available).length
+        });
     }
+
+    return results;
 }
 
 // Listener de mensagens otimizado
@@ -93,7 +84,7 @@ parentPort.on('message', async ({ domains }) => {
         console.timeEnd('processamento');
         parentPort.postMessage({ type: 'complete', results });
     } catch (error) {
-        console.error('Erro fatal no worker:', error);
+        console.error('Erro no worker:', error);
         parentPort.postMessage({ 
             type: 'error', 
             error: error.message 
