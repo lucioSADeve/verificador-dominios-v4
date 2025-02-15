@@ -103,16 +103,19 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
         });
         
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        const domains = new Set();
+        const domains = new Set(); // Usa Set para evitar duplicatas
         const range = XLSX.utils.decode_range(firstSheet['!ref']);
         
+        // Otimiza a leitura do Excel
         for (let row = range.s.r; row <= range.e.r; row++) {
-            const cellB = firstSheet[XLSX.utils.encode_cell({r: row, c: 1})];
-            const cellA = firstSheet[XLSX.utils.encode_cell({r: row, c: 0})];
+            const cellB = firstSheet[XLSX.utils.encode_cell({r: row, c: 1})]; // Coluna B
+            const cellA = firstSheet[XLSX.utils.encode_cell({r: row, c: 0})]; // Coluna A
             
-            if (cellB && cellB.v) {
+            // Verifica se a célula B tem conteúdo válido
+            if (cellB && cellB.v && typeof cellB.v === 'string') {
                 const domain = cellB.v.toString().trim().toLowerCase();
-                if (domain.endsWith('.br') || domain.endsWith('.com.br')) {
+                // Verifica se é um domínio válido
+                if (domain && (domain.endsWith('.br') || domain.endsWith('.com.br'))) {
                     domains.add({
                         colA: cellA ? cellA.v.toString().trim() : '',
                         domain: domain
@@ -124,8 +127,10 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
         const uniqueDomains = Array.from(domains);
         
         if (uniqueDomains.length === 0) {
-            throw new Error('Nenhum domínio .br ou .com.br encontrado na coluna B');
+            throw new Error('Nenhum domínio .br ou .com.br válido encontrado na coluna B');
         }
+
+        console.log(`Total de domínios únicos válidos: ${uniqueDomains.length}`);
 
         domainQueue.addDomains(uniqueDomains);
         processDomainsBatch(uniqueDomains).catch(console.error);
