@@ -52,6 +52,12 @@
             100% { transform: rotate(360deg); }
         }
     </style>
+    <script>
+        // Solicita permissão para notificações
+        if ('Notification' in window) {
+            Notification.requestPermission();
+        }
+    </script>
 </head>
 <body>
     <h1>Verificador de Domínios</h1>
@@ -69,10 +75,10 @@
         const loading = document.querySelector('.loading');
         const progress = document.querySelector('.progress');
         const results = document.querySelector('.results');
-        let progressWorker;
         let lastProgress = 0;
+        let processId = null;
 
-        // Função para verificar o progresso diretamente (fallback)
+        // Função para verificar o progresso em background
         async function checkProgressDirectly() {
             try {
                 const response = await fetch('https://verificadorv5.vercel.app/api/progress', {
@@ -93,11 +99,27 @@
                         <strong>Progresso: ${percent}%</strong><br>
                         Processados: ${data.processed} de ${data.total}<br>
                         Disponíveis: ${data.available || 0}<br>
-                        <small>Tempo estimado: ${Math.ceil((data.total - data.processed) / (data.processed || 1) * 1)} segundos</small>
+                        <small>Você pode fechar esta página, o processamento continuará em segundo plano.</small>
                     `;
+
+                    // Salva o progresso no localStorage
+                    localStorage.setItem('domainProgress', JSON.stringify({
+                        processId,
+                        percent,
+                        processed: data.processed,
+                        total: data.total,
+                        available: data.available
+                    }));
 
                     if (data.processed === data.total) {
                         showDownloadButton();
+                        // Notifica o usuário quando terminar
+                        if (Notification.permission === "granted") {
+                            new Notification("Processamento Concluído!", {
+                                body: `${data.available} domínios disponíveis encontrados.`,
+                                icon: "/favicon.ico"
+                            });
+                        }
                         return true;
                     }
                 }
@@ -109,17 +131,29 @@
             }
         }
 
+        // Verifica se há um processamento em andamento ao carregar a página
+        window.addEventListener('load', () => {
+            const savedProgress = localStorage.getItem('domainProgress');
+            if (savedProgress) {
+                const progress = JSON.parse(savedProgress);
+                processId = progress.processId;
+                if (progress.percent < 100) {
+                    startMonitoring();
+                }
+            }
+        });
+
         // Inicializa o monitoramento
         function startMonitoring() {
             let attempts = 0;
             const maxAttempts = 3;
 
-            // Reduz o intervalo de verificação para 1 segundo
             const checkInterval = setInterval(async () => {
                 try {
                     const isDone = await checkProgressDirectly();
                     if (isDone) {
                         clearInterval(checkInterval);
+                        localStorage.removeItem('domainProgress');
                     }
                 } catch (error) {
                     attempts++;
@@ -130,15 +164,15 @@
                         progress.innerHTML = `<p style="color: red">Erro: Falha ao verificar progresso após ${maxAttempts} tentativas</p>`;
                     }
                 }
-            }, 1000); // Reduzido de 3000 para 1000ms
+            }, 1000);
 
-            // Reduz o timeout global para 3 minutos
+            // Timeout global
             setTimeout(() => {
                 clearInterval(checkInterval);
                 if (!results.innerHTML.includes('Processamento concluído')) {
                     progress.innerHTML = `<p style="color: red">Erro: Tempo limite de processamento excedido</p>`;
                 }
-            }, 180000); // Reduzido de 300000 para 180000ms (3 minutos)
+            }, 180000);
         }
 
         function showDownloadButton() {
@@ -183,7 +217,15 @@
                     throw new Error(data.error);
                 }
 
-                // Inicia o monitoramento
+                processId = data.processId; // Novo ID de processo
+                localStorage.setItem('domainProgress', JSON.stringify({
+                    processId,
+                    percent: 0,
+                    processed: 0,
+                    total: data.totalDomains,
+                    available: 0
+                }));
+
                 startMonitoring();
 
             } catch (erro) {

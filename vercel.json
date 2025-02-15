@@ -18,13 +18,6 @@
       {
         "src": "/(.*)",
         "dest": "public/$1"
-      },
-      {
-        "src": "/progressWorker.js",
-        "dest": "/public/progressWorker.js",
-        "headers": {
-          "cache-control": "public, max-age=0, must-revalidate"
-        }
       }
     ]
   }
