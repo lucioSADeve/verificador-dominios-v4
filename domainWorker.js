@@ -2,18 +2,17 @@ const { parentPort } = require('worker_threads');
 const pLimit = require('p-limit');
 const fetch = require('node-fetch');
 
-// Configurações ultra otimizadas
-const CONCURRENT_LIMIT = 200; // Reduzido para evitar bloqueio
-const BATCH_SIZE = 50; // Lotes menores para melhor feedback
-const FETCH_TIMEOUT = 2000; // 2 segundos de timeout
-const RETRY_DELAY = 100; // 100ms entre retentativas
+// Configurações ajustadas
+const CONCURRENT_LIMIT = 100; // Reduzido para maior estabilidade
+const BATCH_SIZE = 25; // Lotes menores
+const FETCH_TIMEOUT = 3000; // Aumentado para 3 segundos
+const RETRY_DELAY = 50; // Reduzido delay entre tentativas
 
 // Cache otimizado
 const resultsCache = new Map();
 
 // Função otimizada para verificar domínio
 async function checkDomain(domain) {
-    // Verifica cache primeiro
     if (resultsCache.has(domain)) {
         return resultsCache.get(domain);
     }
@@ -40,14 +39,22 @@ async function checkDomain(domain) {
 
         const data = await response.json();
         const isAvailable = data.status === 'AVAILABLE';
-        
-        // Salva no cache
         resultsCache.set(domain, isAvailable);
-        
         return isAvailable;
     } catch (error) {
-        // Em caso de erro, considera como indisponível
-        return false;
+        // Tenta uma segunda vez em caso de erro
+        try {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            const response = await fetch(`https://registro.br/v2/ajax/whois/${domain}`, {
+                timeout: FETCH_TIMEOUT
+            });
+            const data = await response.json();
+            const isAvailable = data.status === 'AVAILABLE';
+            resultsCache.set(domain, isAvailable);
+            return isAvailable;
+        } catch {
+            return false;
+        }
     }
 }
 
@@ -57,62 +64,72 @@ async function processDomainsParallel(domains) {
     const results = [];
     let processed = 0;
     let available = 0;
+    let lastProgressUpdate = Date.now();
     
-    // Processa em lotes menores
-    for (let i = 0; i < domains.length; i += BATCH_SIZE) {
-        const batch = domains.slice(i, i + BATCH_SIZE);
-        
-        // Processa lote atual
-        const batchPromises = batch.map(domain => 
-            limit(async () => {
-                try {
-                    const isAvailable = await checkDomain(domain.domain);
-                    processed++;
-                    if (isAvailable) available++;
-                    
-                    // Reporta progresso a cada domínio
-                    parentPort.postMessage({
-                        type: 'progress',
-                        processed,
-                        total: domains.length,
-                        available
-                    });
+    try {
+        for (let i = 0; i < domains.length; i += BATCH_SIZE) {
+            const batch = domains.slice(i, i + BATCH_SIZE);
+            
+            const batchPromises = batch.map(domain => 
+                limit(async () => {
+                    try {
+                        const isAvailable = await checkDomain(domain.domain);
+                        processed++;
+                        if (isAvailable) available++;
+                        
+                        // Atualiza progresso a cada 500ms
+                        const now = Date.now();
+                        if (now - lastProgressUpdate >= 500) {
+                            parentPort.postMessage({
+                                type: 'progress',
+                                processed,
+                                total: domains.length,
+                                available
+                            });
+                            lastProgressUpdate = now;
+                        }
 
-                    return {
-                        ...domain,
-                        available: isAvailable
-                    };
-                } catch (error) {
-                    processed++;
-                    return {
-                        ...domain,
-                        available: false,
-                        error: true
-                    };
-                }
-            })
-        );
+                        return {
+                            ...domain,
+                            available: isAvailable
+                        };
+                    } catch (error) {
+                        processed++;
+                        return {
+                            ...domain,
+                            available: false,
+                            error: true
+                        };
+                    }
+                })
+            );
 
-        const batchResults = await Promise.all(batchPromises);
-        results.push(...batchResults);
+            const batchResults = await Promise.allSettled(batchPromises);
+            results.push(...batchResults
+                .filter(r => r.status === 'fulfilled')
+                .map(r => r.value)
+            );
 
-        // Pequena pausa entre lotes para evitar sobrecarga
-        if (i + BATCH_SIZE < domains.length) {
-            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+            // Pequena pausa entre lotes
+            if (i + BATCH_SIZE < domains.length) {
+                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+            }
         }
-    }
 
-    return results;
+        return results;
+    } catch (error) {
+        console.error('Erro no processamento:', error);
+        throw error;
+    }
 }
 
-// Listener de mensagens otimizado
+// Listener de mensagens
 parentPort.on('message', async ({ domains }) => {
     try {
         console.time('processamento');
         const results = await processDomainsParallel(domains);
         console.timeEnd('processamento');
         
-        // Limpa cache após processamento
         resultsCache.clear();
         
         parentPort.postMessage({ 
@@ -120,15 +137,19 @@ parentPort.on('message', async ({ domains }) => {
             results 
         });
     } catch (error) {
-        console.error('Erro no worker:', error);
+        console.error('Erro fatal:', error);
         parentPort.postMessage({ 
             type: 'error', 
-            error: error.message 
+            error: error.message || 'Erro no processamento'
         });
     }
 });
 
-// Tratamento de erros
+// Tratamento de erros global
 process.on('unhandledRejection', (error) => {
     console.error('Erro não tratado:', error);
+    parentPort.postMessage({ 
+        type: 'error', 
+        error: 'Erro interno no processamento'
+    });
 }); 
