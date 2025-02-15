@@ -180,6 +180,21 @@ app.get('/api/download-results', (req, res) => {
     }
 });
 
+// Rota para limpar cache
+app.post('/api/clear-cache', (req, res) => {
+    try {
+        // Limpa o cache e estado
+        domainQueue.clear();
+        workers.forEach(worker => worker.terminate());
+        workers.clear();
+        
+        res.json({ success: true, message: 'Cache limpo com sucesso' });
+    } catch (error) {
+        console.error('Erro ao limpar cache:', error);
+        res.status(500).json({ error: 'Erro ao limpar cache' });
+    }
+});
+
 // Configuração da porta
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
