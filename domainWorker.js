@@ -2,12 +2,11 @@ const { parentPort } = require('worker_threads');
 const pLimit = require('p-limit');
 const fetch = require('node-fetch');
 
-// Configurações mais conservadoras
-const CONCURRENT_LIMIT = 50; // Reduzido para evitar sobrecarga
-const BATCH_SIZE = 10; // Lotes menores
-const FETCH_TIMEOUT = 5000; // Aumentado para 5 segundos
-const RETRY_DELAY = 200; // Aumentado delay entre tentativas
-const PROCESS_TIMEOUT = 1800000; // 30 minutos de timeout total
+// Configurações otimizadas
+const CONCURRENT_LIMIT = 20; // Reduzido para evitar bloqueio do Registro.br
+const BATCH_SIZE = 5; // Lotes menores para feedback mais frequente
+const FETCH_TIMEOUT = 3000; // 3 segundos
+const RETRY_DELAY = 100; // 100ms entre tentativas
 
 // Cache otimizado
 const resultsCache = new Map();
@@ -18,37 +17,34 @@ async function checkDomain(domain) {
         return resultsCache.get(domain);
     }
 
-    for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
 
-            const response = await fetch(`https://registro.br/v2/ajax/whois/${domain}`, {
-                method: 'GET',
-                headers: {
-                    'Accept': 'application/json',
-                    'Cache-Control': 'no-cache'
-                },
-                signal: controller.signal,
-                timeout: FETCH_TIMEOUT
-            });
+        const response = await fetch(`https://registro.br/v2/ajax/whois/${domain}`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'Cache-Control': 'no-cache'
+            },
+            signal: controller.signal,
+            timeout: FETCH_TIMEOUT
+        });
 
-            clearTimeout(timeoutId);
+        clearTimeout(timeoutId);
 
-            if (!response.ok) {
-                throw new Error('API error');
-            }
-
-            const data = await response.json();
-            const isAvailable = data.status === 'AVAILABLE';
-            resultsCache.set(domain, isAvailable);
-            return isAvailable;
-        } catch (error) {
-            if (attempt === 1) return false;
-            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        if (!response.ok) {
+            throw new Error('API error');
         }
+
+        const data = await response.json();
+        const isAvailable = data.status === 'AVAILABLE';
+        resultsCache.set(domain, isAvailable);
+        return isAvailable;
+    } catch (error) {
+        // Em caso de erro, considera como indisponível
+        return false;
     }
-    return false;
 }
 
 // Processamento otimizado em lotes
@@ -57,79 +53,52 @@ async function processDomainsParallel(domains) {
     const results = [];
     let processed = 0;
     let available = 0;
-    let lastProgressUpdate = Date.now();
-    const startTime = Date.now();
     
-    try {
-        for (let i = 0; i < domains.length; i += BATCH_SIZE) {
-            // Verifica timeout global
-            if (Date.now() - startTime > PROCESS_TIMEOUT) {
-                throw new Error('Tempo máximo de processamento excedido');
-            }
+    // Processa em lotes pequenos
+    for (let i = 0; i < domains.length; i += BATCH_SIZE) {
+        const batch = domains.slice(i, i + BATCH_SIZE);
+        
+        const batchPromises = batch.map(domain => 
+            limit(async () => {
+                try {
+                    const isAvailable = await checkDomain(domain.domain);
+                    processed++;
+                    if (isAvailable) available++;
+                    
+                    // Reporta progresso para cada domínio
+                    parentPort.postMessage({
+                        type: 'progress',
+                        processed,
+                        total: domains.length,
+                        available
+                    });
 
-            const batch = domains.slice(i, i + BATCH_SIZE);
-            
-            const batchPromises = batch.map(domain => 
-                limit(async () => {
-                    try {
-                        const isAvailable = await checkDomain(domain.domain);
-                        processed++;
-                        if (isAvailable) available++;
-                        
-                        // Atualiza progresso mais frequentemente
-                        const now = Date.now();
-                        if (now - lastProgressUpdate >= 200) {
-                            parentPort.postMessage({
-                                type: 'progress',
-                                processed,
-                                total: domains.length,
-                                available,
-                                timeElapsed: Math.floor((now - startTime) / 1000)
-                            });
-                            lastProgressUpdate = now;
-                        }
+                    return {
+                        ...domain,
+                        available: isAvailable
+                    };
+                } catch (error) {
+                    processed++;
+                    return {
+                        ...domain,
+                        available: false,
+                        error: true
+                    };
+                }
+            })
+        );
 
-                        return {
-                            ...domain,
-                            available: isAvailable
-                        };
-                    } catch (error) {
-                        processed++;
-                        return {
-                            ...domain,
-                            available: false,
-                            error: true
-                        };
-                    }
-                })
-            );
+        // Processa lote atual
+        const batchResults = await Promise.all(batchPromises);
+        results.push(...batchResults);
 
-            const batchResults = await Promise.allSettled(batchPromises);
-            const validResults = batchResults
-                .filter(r => r.status === 'fulfilled')
-                .map(r => r.value);
-            
-            results.push(...validResults);
-
-            // Pausa entre lotes
-            if (i + BATCH_SIZE < domains.length) {
-                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-            }
+        // Pequena pausa entre lotes
+        if (i + BATCH_SIZE < domains.length) {
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
         }
-
-        return results;
-    } catch (error) {
-        // Salva resultados parciais em caso de erro
-        parentPort.postMessage({
-            type: 'partial_results',
-            results,
-            processed,
-            total: domains.length,
-            available,
-            error: error.message
-        });
-        throw error;
     }
+
+    return results;
 }
 
 // Listener de mensagens
