@@ -202,9 +202,11 @@ app.post('/api/clear-cache', (req, res) => {
 
 // Configuração da porta
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`Servidor rodando na porta ${PORT} com ${numWorkers} worker(s)`);
 });
+
+server.timeout = 1800000; // 30 minutos
 
 // Limpeza de recursos
 process.on('SIGTERM', () => {
