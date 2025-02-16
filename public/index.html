@@ -134,6 +134,7 @@
                         Status: ${translateStatus(fileData.status)}<br>
                         Progresso: ${fileData.progress}%<br>
                         Domínios disponíveis: ${fileData.available}
+                        ${fileData.errorMessage ? `<br><span style="color: red">Erro: ${fileData.errorMessage}</span>` : ''}
                     </div>
                     ${fileData.status === 'completed' ? 
                         `<a href="/api/download-results/${fileName}" class="download-button">
@@ -148,6 +149,7 @@
         function translateStatus(status) {
             const translations = {
                 'pending': 'Pendente',
+                'uploading': 'Enviando arquivo...',
                 'processing': 'Processando',
                 'completed': 'Concluído',
                 'error': 'Erro'
@@ -170,10 +172,17 @@
                     formData.append('file', fileData.file);
 
                     try {
+                        fileData.status = 'uploading';
+                        updateFileList();
+
                         const response = await fetch('/api/upload-excel', {
                             method: 'POST',
                             body: formData
                         });
+
+                        if (!response.ok) {
+                            throw new Error(`Erro ${response.status}: ${response.statusText}`);
+                        }
 
                         const data = await response.json();
                         if (data.error) throw new Error(data.error);
@@ -181,11 +190,12 @@
                         fileData.status = 'processing';
                         updateFileList();
 
-                        // Start progress monitoring for this file
+                        // Inicia o monitoramento do progresso
                         monitorProgress(fileName);
                     } catch (error) {
                         fileData.status = 'error';
                         console.error(`Erro ao processar ${fileName}:`, error);
+                        fileData.errorMessage = error.message;
                         updateFileList();
                     }
                 }
@@ -196,9 +206,14 @@
             const interval = setInterval(async () => {
                 try {
                     const response = await fetch(`/api/progress/${fileName}`);
-                    const data = await response.json();
+                    
+                    if (!response.ok) {
+                        throw new Error(`Erro ao verificar progresso: ${response.statusText}`);
+                    }
 
+                    const data = await response.json();
                     const fileData = files.get(fileName);
+                    
                     if (!fileData) {
                         clearInterval(interval);
                         return;
@@ -217,6 +232,13 @@
                     }
                 } catch (error) {
                     console.error(`Erro ao monitorar progresso de ${fileName}:`, error);
+                    const fileData = files.get(fileName);
+                    if (fileData) {
+                        fileData.status = 'error';
+                        fileData.errorMessage = error.message;
+                        updateFileList();
+                    }
+                    clearInterval(interval);
                 }
             }, 1000);
         }
