@@ -205,15 +205,18 @@
         function monitorProgress(fileName) {
             const interval = setInterval(async () => {
                 try {
+                    console.log(`Verificando progresso para: ${fileName}`);
                     const response = await fetch(`/api/progress/${fileName}`);
                     
                     if (!response.ok) {
-                        throw new Error(`Erro ao verificar progresso: ${response.statusText}`);
+                        const errorText = await response.text();
+                        throw new Error(`Erro ao verificar progresso: Status ${response.status} - ${errorText}`);
                     }
 
                     const data = await response.json();
-                    const fileData = files.get(fileName);
+                    console.log(`Dados recebidos:`, data);
                     
+                    const fileData = files.get(fileName);
                     if (!fileData) {
                         clearInterval(interval);
                         return;
@@ -231,11 +234,11 @@
                         updateFileList();
                     }
                 } catch (error) {
-                    console.error(`Erro ao monitorar progresso de ${fileName}:`, error);
+                    console.error(`Erro detalhado:`, error);
                     const fileData = files.get(fileName);
                     if (fileData) {
                         fileData.status = 'error';
-                        fileData.errorMessage = error.message;
+                        fileData.errorMessage = `${error.message}. Verifique o console para mais detalhes.`;
                         updateFileList();
                     }
                     clearInterval(interval);
