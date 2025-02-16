@@ -3,10 +3,9 @@ const pLimit = require('p-limit');
 const fetch = require('node-fetch');
 
 // Configurações otimizadas
-const CONCURRENT_LIMIT = 20; // Reduzido para evitar bloqueio do Registro.br
-const BATCH_SIZE = 5; // Lotes menores para feedback mais frequente
-const FETCH_TIMEOUT = 3000; // 3 segundos
-const RETRY_DELAY = 100; // 100ms entre tentativas
+const CONCURRENT_LIMIT = 10; // 10 verificações simultâneas
+const BATCH_SIZE = 5;        // 5 domínios por lote
+const FETCH_TIMEOUT = 3000;  // 3 segundos
 
 // Cache otimizado
 const resultsCache = new Map();
@@ -91,11 +90,6 @@ async function processDomainsParallel(domains) {
         // Processa lote atual
         const batchResults = await Promise.all(batchPromises);
         results.push(...batchResults);
-
-        // Pequena pausa entre lotes
-        if (i + BATCH_SIZE < domains.length) {
-            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-        }
     }
 
     return results;
