@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verificador de Domínios</title>
+    <title>Verificador de Domínios Multi</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -38,86 +38,188 @@
         .loading {
             display: none;
         }
+        .file-list {
+            margin: 20px 0;
+        }
+        .file-item {
+            background: #f5f5f5;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            position: relative;
+        }
+        .file-progress {
+            margin: 10px 0;
+            background: #e0e0e0;
+            border-radius: 4px;
+        }
+        .progress-bar {
+            height: 20px;
+            background: #4CAF50;
+            width: 0%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+        .remove-file {
+            position: absolute;
+            right: 10px;
+            top: 10px;
+            background: #ff4444;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .process-all {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 20px 0;
+            font-size: 16px;
+        }
+        .process-all:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
-    <h1>Verificador de Domínios</h1>
+    <h1>Verificador de Domínios Multi</h1>
     <div class="upload-area">
-        <h3>Arraste seu arquivo Excel ou clique para selecionar</h3>
-        <p>O arquivo deve ter os domínios na coluna B</p>
-        <input type="file" id="fileInput" accept=".xlsx,.xls">
+        <h3>Arraste seus arquivos Excel ou clique para selecionar</h3>
+        <p>Os arquivos devem ter os domínios na coluna B</p>
+        <input type="file" id="fileInput" accept=".xlsx,.xls" multiple>
     </div>
-    <div class="loading">Processando arquivo...</div>
-    <div class="progress"></div>
-    <div class="results"></div>
+    <button id="processAllBtn" class="process-all" disabled>Processar Todos os Arquivos</button>
+    <div id="fileList" class="file-list"></div>
 
     <script>
         const fileInput = document.getElementById('fileInput');
-        const loading = document.querySelector('.loading');
-        const progress = document.querySelector('.progress');
-        const results = document.querySelector('.results');
-        let checkProgressInterval;
+        const fileList = document.getElementById('fileList');
+        const processAllBtn = document.getElementById('processAllBtn');
+        const files = new Map();
 
-        function updateProgress() {
-            fetch('/api/progress')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.total > 0) {
-                        const percent = Math.round((data.processed / data.total) * 100);
-                        progress.innerHTML = `
-                            Progresso: ${percent}%<br>
-                            Processados: ${data.processed} de ${data.total}<br>
-                            Disponíveis: ${data.available}
-                        `;
-
-                        if (data.processed === data.total) {
-                            clearInterval(checkProgressInterval);
-                            showDownloadButton();
-                        }
-                    }
-                })
-                .catch(error => console.error('Erro:', error));
-        }
-
-        function showDownloadButton() {
-            results.innerHTML = `
-                <h3>Processamento concluído!</h3>
-                <a href="/api/download-results" class="download-button">
-                    Baixar Domínios Disponíveis
-                </a>
-            `;
-        }
-
-        fileInput.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            loading.style.display = 'block';
-            progress.innerHTML = 'Iniciando processamento...';
-            results.innerHTML = '';
-
-            try {
-                const response = await fetch('/api/upload-excel', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-
-                if (data.error) {
-                    throw new Error(data.error);
+        fileInput.addEventListener('change', (e) => {
+            const newFiles = Array.from(e.target.files);
+            newFiles.forEach(file => {
+                if (!files.has(file.name)) {
+                    files.set(file.name, {
+                        file,
+                        status: 'pending',
+                        progress: 0,
+                        available: 0
+                    });
+                    updateFileList();
                 }
+            });
+            processAllBtn.disabled = files.size === 0;
+        });
 
-                checkProgressInterval = setInterval(updateProgress, 1000);
+        function updateFileList() {
+            fileList.innerHTML = '';
+            files.forEach((fileData, fileName) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.innerHTML = `
+                    <button class="remove-file" onclick="removeFile('${fileName}')">×</button>
+                    <h4>${fileName}</h4>
+                    <div class="file-progress">
+                        <div class="progress-bar" style="width: ${fileData.progress}%"></div>
+                    </div>
+                    <div class="file-info">
+                        Status: ${translateStatus(fileData.status)}<br>
+                        Progresso: ${fileData.progress}%<br>
+                        Domínios disponíveis: ${fileData.available}
+                    </div>
+                    ${fileData.status === 'completed' ? 
+                        `<a href="/api/download-results/${fileName}" class="download-button">
+                            Baixar Domínios Disponíveis
+                        </a>` : ''
+                    }
+                `;
+                fileList.appendChild(fileItem);
+            });
+        }
 
-            } catch (erro) {
-                results.innerHTML = `<p style="color: red">Erro: ${erro.message}</p>`;
-                loading.style.display = 'none';
+        function translateStatus(status) {
+            const translations = {
+                'pending': 'Pendente',
+                'processing': 'Processando',
+                'completed': 'Concluído',
+                'error': 'Erro'
+            };
+            return translations[status] || status;
+        }
+
+        function removeFile(fileName) {
+            files.delete(fileName);
+            updateFileList();
+            processAllBtn.disabled = files.size === 0;
+        }
+
+        processAllBtn.addEventListener('click', async () => {
+            processAllBtn.disabled = true;
+            
+            for (const [fileName, fileData] of files) {
+                if (fileData.status === 'pending') {
+                    const formData = new FormData();
+                    formData.append('file', fileData.file);
+
+                    try {
+                        const response = await fetch('/api/upload-excel', {
+                            method: 'POST',
+                            body: formData
+                        });
+
+                        const data = await response.json();
+                        if (data.error) throw new Error(data.error);
+
+                        fileData.status = 'processing';
+                        updateFileList();
+
+                        // Start progress monitoring for this file
+                        monitorProgress(fileName);
+                    } catch (error) {
+                        fileData.status = 'error';
+                        console.error(`Erro ao processar ${fileName}:`, error);
+                        updateFileList();
+                    }
+                }
             }
         });
+
+        function monitorProgress(fileName) {
+            const interval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/progress/${fileName}`);
+                    const data = await response.json();
+
+                    const fileData = files.get(fileName);
+                    if (!fileData) {
+                        clearInterval(interval);
+                        return;
+                    }
+
+                    if (data.total > 0) {
+                        fileData.progress = Math.round((data.processed / data.total) * 100);
+                        fileData.available = data.available;
+
+                        if (data.processed === data.total) {
+                            fileData.status = 'completed';
+                            clearInterval(interval);
+                        }
+
+                        updateFileList();
+                    }
+                } catch (error) {
+                    console.error(`Erro ao monitorar progresso de ${fileName}:`, error);
+                }
+            }, 1000);
+        }
     </script>
 </body>
 </html>
