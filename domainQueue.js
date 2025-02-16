@@ -77,6 +77,7 @@ class DomainQueue {
             total: 0,
             processed: 0
         };
+        console.log('DomainQueue: Cache e resultados limpos');
     }
 }
 

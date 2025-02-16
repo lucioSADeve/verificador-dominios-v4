@@ -95,7 +95,14 @@
         clearButton.style.display = 'none';
         document.querySelector('.upload-area').after(clearButton);
 
-        // Função para limpar cache
+        // Adiciona listener para quando a aba for fechada
+        window.addEventListener('beforeunload', async (event) => {
+            if (isProcessing) {
+                await clearCache();
+            }
+        });
+
+        // Função melhorada para limpar cache
         async function clearCache() {
             try {
                 const response = await fetch('https://verificadorv5.vercel.app/api/clear-cache', {
@@ -110,7 +117,7 @@
                     throw new Error('Erro ao limpar cache');
                 }
 
-                // Reseta interface
+                // Reseta interface e estado
                 progress.innerHTML = '';
                 results.innerHTML = '';
                 loading.style.display = 'none';
@@ -118,6 +125,11 @@
                 fileInput.value = '';
                 fileInput.disabled = false;
                 isProcessing = false;
+
+                // Limpa qualquer intervalo pendente
+                if (window.checkInterval) {
+                    clearInterval(window.checkInterval);
+                }
 
                 results.innerHTML = '<p style="color: green">Cache limpo com sucesso!</p>';
                 setTimeout(() => results.innerHTML = '', 3000);
@@ -244,13 +256,19 @@
                     <a href="https://verificadorv5.vercel.app/api/download-results" class="download-button">
                         Baixar Domínios Disponíveis
                     </a>
-                    <button onclick="clearCache()" class="clear-button">
+                    <button onclick="clearAndReset()" class="clear-button">
                         Limpar e Iniciar Novo
                     </button>
                 </div>
             `;
             loading.style.display = 'none';
             clearButton.style.display = 'none';
+        }
+
+        // Nova função para limpar e resetar completamente
+        async function clearAndReset() {
+            await clearCache();
+            location.reload(); // Recarrega a página para garantir um estado limpo
         }
 
         window.addEventListener('error', function(event) {

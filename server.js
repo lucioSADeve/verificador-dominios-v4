@@ -189,7 +189,7 @@ app.get('/api/download-results', (req, res) => {
 app.post('/api/clear-cache', (req, res) => {
     try {
         // Limpa o cache e estado
-        domainQueue.clear();
+        domainQueue.clearResults();
         
         // Termina todos os workers ativos
         workers.forEach(worker => {
@@ -201,14 +201,10 @@ app.post('/api/clear-cache', (req, res) => {
         });
         workers.clear();
         
-        // Limpa resultados
-        if (domainQueue.results) {
-            domainQueue.results = {
-                available: [],
-                processed: 0,
-                total: 0
-            };
-        }
+        // Limpa caches adicionais
+        resultsCache.clear();
+        progressCache.data = null;
+        progressCache.lastUpdate = 0;
         
         res.json({ 
             success: true, 
