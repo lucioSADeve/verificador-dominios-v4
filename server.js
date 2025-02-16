@@ -185,18 +185,40 @@ app.get('/api/download-results', (req, res) => {
     }
 });
 
-// Rota para limpar cache
+// Rota para limpar cache e cancelar processamento
 app.post('/api/clear-cache', (req, res) => {
     try {
         // Limpa o cache e estado
         domainQueue.clear();
-        workers.forEach(worker => worker.terminate());
+        
+        // Termina todos os workers ativos
+        workers.forEach(worker => {
+            try {
+                worker.terminate();
+            } catch (error) {
+                console.error('Erro ao terminar worker:', error);
+            }
+        });
         workers.clear();
         
-        res.json({ success: true, message: 'Cache limpo com sucesso' });
+        // Limpa resultados
+        if (domainQueue.results) {
+            domainQueue.results = {
+                available: [],
+                processed: 0,
+                total: 0
+            };
+        }
+        
+        res.json({ 
+            success: true, 
+            message: 'Cache limpo e processamento cancelado com sucesso' 
+        });
     } catch (error) {
         console.error('Erro ao limpar cache:', error);
-        res.status(500).json({ error: 'Erro ao limpar cache' });
+        res.status(500).json({ 
+            error: 'Erro ao limpar cache e cancelar processamento' 
+        });
     }
 });
 
