@@ -159,6 +159,10 @@
 
         function removeFile(fileName) {
             files.delete(fileName);
+            if (window.progressIntervals && window.progressIntervals.has(fileName)) {
+                clearInterval(window.progressIntervals.get(fileName));
+                window.progressIntervals.delete(fileName);
+            }
             updateFileList();
             processAllBtn.disabled = files.size === 0;
         }
@@ -206,7 +210,7 @@
             const interval = setInterval(async () => {
                 try {
                     console.log(`Verificando progresso para: ${fileName}`);
-                    const response = await fetch(`/api/progress/${fileName}`);
+                    const response = await fetch('/api/progress');
                     
                     if (!response.ok) {
                         const errorText = await response.text();
@@ -244,6 +248,11 @@
                     clearInterval(interval);
                 }
             }, 1000);
+
+            if (!window.progressIntervals) {
+                window.progressIntervals = new Map();
+            }
+            window.progressIntervals.set(fileName, interval);
         }
     </script>
 </body>
