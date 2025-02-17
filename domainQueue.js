@@ -10,6 +10,7 @@ class DomainQueue {
             total: 0,
             processed: 0
         };
+        this.concurrentChecks = 10; // Aumentado para 10 verificações simultâneas
     }
 
     addDomains(domains) {
@@ -27,6 +28,34 @@ class DomainQueue {
         }
     }
 
+    async checkDomain(item) {
+        try {
+            const response = await axios.get(`https://registro.br/v2/ajax/avail/raw/${item.domain}`, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Accept': 'application/json, text/plain, */*',
+                    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+                    'Referer': 'https://registro.br/',
+                    'Origin': 'https://registro.br'
+                },
+                timeout: 3000 // Reduzido para 3 segundos
+            });
+
+            console.log('Resposta bruta para', item.domain, ':', response.data);
+            
+            // Verificação mais robusta do status
+            if (response.data && 
+                (response.data.status === '0' || response.data.status === 0 || response.data.available === true)) {
+                console.log('Domínio disponível:', item.domain);
+                this.results.available.push(item);
+            }
+            this.results.processed++;
+        } catch (error) {
+            console.error(`Erro ao verificar domínio ${item.domain}:`, error.message);
+            this.queue.push(item); // Recoloca na fila em caso de erro
+        }
+    }
+
     async processQueue() {
         try {
             if (this.queue.length === 0) {
@@ -36,40 +65,24 @@ class DomainQueue {
             }
 
             this.results.processing = true;
-            const item = this.queue.shift();
-            console.log('Verificando domínio:', item.domain);
 
-            try {
-                // Adicionando headers para simular um navegador
-                const response = await axios.get(`https://registro.br/v2/ajax/avail/raw/${item.domain}`, {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                        'Accept': 'application/json, text/plain, */*',
-                        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-                        'Referer': 'https://registro.br/',
-                        'Origin': 'https://registro.br'
-                    },
-                    timeout: 5000 // 5 segundos de timeout
-                });
+            // Pega até 10 domínios para processar simultaneamente
+            const batch = this.queue.splice(0, this.concurrentChecks);
+            console.log(`Processando lote de ${batch.length} domínios`);
 
-                console.log('Resposta bruta para', item.domain, ':', response.data);
-                
-                // Verificação mais robusta do status
-                if (response.data && 
-                    (response.data.status === '0' || response.data.status === 0 || response.data.available === true)) {
-                    console.log('Domínio disponível:', item.domain);
-                    this.results.available.push(item);
-                }
-            } catch (error) {
-                console.error(`Erro ao verificar domínio ${item.domain}:`, error.message);
-                // Tenta novamente em caso de erro
-                this.queue.push(item);
-                this.results.processed--; // Desconta o processamento que falhou
-            }
-            
-            this.results.processed++;
-            // Aumentando o delay entre requisições para evitar bloqueio
-            await new Promise(resolve => setTimeout(resolve, 2000)); // 2 segundos
+            // Processa o lote com um delay menor entre cada domínio
+            const promises = batch.map((item, index) => 
+                new Promise(resolve => 
+                    setTimeout(() => 
+                        resolve(this.checkDomain(item)), 
+                        index * 200) // Reduzido para 200ms entre cada requisição
+                )
+            );
+
+            await Promise.all(promises);
+
+            // Reduzido o delay entre lotes
+            await new Promise(resolve => setTimeout(resolve, 1000)); // 1 segundo entre lotes
             this.processQueue();
         } catch (error) {
             console.error('Erro no processamento da fila:', error);
