@@ -52,6 +52,39 @@ const upload = multer({
 // Cache em memória para resultados
 const resultsCache = new Map();
 
+// Adicionar um controle de perfis em uso
+const activeProfiles = new Map(); // Guarda perfis em uso
+let lastProfileIndex = 0; // Para fazer round-robin dos perfis
+
+// Função para obter próximo perfil disponível
+async function getNextAvailableProfile() {
+    try {
+        const dolphinService = require('./services/dolphinService');
+        const profiles = await dolphinService.getProfiles();
+        if (!profiles.data || profiles.data.length === 0) {
+            throw new Error('Nenhum perfil Dolphin disponível');
+        }
+
+        // Round-robin entre os perfis
+        lastProfileIndex = (lastProfileIndex + 1) % profiles.data.length;
+        const profile = profiles.data[lastProfileIndex];
+
+        // Iniciar o perfil se ainda não estiver ativo
+        if (!activeProfiles.has(profile.id)) {
+            await dolphinService.startProfile(profile.id);
+            activeProfiles.set(profile.id, {
+                startTime: Date.now(),
+                tabs: 0
+            });
+        }
+
+        return profile;
+    } catch (error) {
+        console.error('Erro ao obter perfil:', error);
+        throw error;
+    }
+}
+
 // Função otimizada para processar domínios
 async function processDomainsBatch(domains) {
     const chunks = [];
@@ -252,6 +285,93 @@ app.get('/api/test-dolphin', async (req, res) => {
         });
     }
 });
+
+// Adicione esta nova rota de teste
+app.get('/api/test-dolphin-full', async (req, res) => {
+    try {
+        const dolphinService = require('./services/dolphinService');
+        
+        // Teste 1: Listar perfis
+        console.log('1. Testando listagem de perfis...');
+        const profiles = await dolphinService.getProfiles();
+        
+        if (!profiles || profiles.length === 0) {
+            throw new Error('Nenhum perfil encontrado');
+        }
+        
+        // Teste 2: Iniciar primeiro perfil
+        console.log('2. Testando início do perfil...');
+        const profileId = profiles[0].id;
+        const startResult = await dolphinService.startProfile(profileId);
+        
+        // Teste 3: Criar nova aba
+        console.log('3. Testando criação de aba...');
+        const tabResult = await dolphinService.createTab(profileId);
+        
+        res.json({
+            success: true,
+            tests: {
+                profiles: profiles,
+                startProfile: startResult,
+                newTab: tabResult
+            }
+        });
+    } catch (error) {
+        console.error('Erro nos testes:', {
+            message: error.message,
+            stack: error.stack,
+            response: error.response?.data
+        });
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            details: error.response?.data,
+            stack: error.stack
+        });
+    }
+});
+
+app.post('/api/check-domains', upload.single('file'), async (req, res) => {
+    try {
+        // ... código existente ...
+
+        // Criar workers com diferentes perfis
+        const workers = [];
+        const batchSize = Math.ceil(domains.length / numWorkers);
+        
+        for (let i = 0; i < numWorkers; i++) {
+            const profile = await getNextAvailableProfile();
+            const workerData = {
+                domains: domains.slice(i * batchSize, (i + 1) * batchSize),
+                profileId: profile.id,
+                batchId: currentBatchId
+            };
+
+            const worker = new Worker('./worker.js', { workerData });
+            workers.push(worker);
+            
+            // Incrementar contagem de tabs para este perfil
+            const profileInfo = activeProfiles.get(profile.id);
+            profileInfo.tabs++;
+        }
+
+        // ... resto do código ...
+
+    } catch (error) {
+        console.error('Erro:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Limpar perfis inativos periodicamente
+setInterval(() => {
+    const now = Date.now();
+    for (const [profileId, info] of activeProfiles.entries()) {
+        if (now - info.startTime > 30 * 60 * 1000 && info.tabs === 0) { // 30 minutos sem uso
+            activeProfiles.delete(profileId);
+        }
+    }
+}, 5 * 60 * 1000); // Checar a cada 5 minutos
 
 // Configuração da porta
 const PORT = process.env.PORT || 3000;

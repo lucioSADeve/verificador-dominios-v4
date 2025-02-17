@@ -1,59 +1,38 @@
-let progressInterval;
+const { parentPort, workerData } = require('worker_threads');
+const dolphinService = require('../services/dolphinService');
 
-console.log('Worker iniciado');
-
-self.onmessage = function(e) {
-    console.log('Mensagem recebida no Worker:', e.data);
+async function checkDomains() {
+    const { domains, profileId } = workerData;
     
-    if (e.data === 'start') {
-        console.log('Iniciando verificação de progresso');
-        checkProgress(); // Primeira verificação imediata
-        progressInterval = setInterval(checkProgress, 3000);
-    } else if (e.data === 'stop') {
-        console.log('Parando verificação');
-        clearInterval(progressInterval);
-    }
-};
-
-async function checkProgress() {
     try {
-        console.log('Fazendo requisição de progresso...');
-        // Usando URL absoluta para a Vercel
-        const response = await fetch('https://verificador-dominios-v4.vercel.app/api/progress', {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-                'Cache-Control': 'no-cache'
-            }
+        // Criar nova aba no perfil específico
+        const tab = await dolphinService.createTab(profileId);
+
+        for (const domain of domains) {
+            // Usar a aba criada para verificar o domínio
+            // ... código de verificação ...
+
+            // Enviar progresso
+            parentPort.postMessage({
+                type: 'progress',
+                domain,
+                result
+            });
+        }
+
+        // Decrementar contagem de tabs ao finalizar
+        parentPort.postMessage({
+            type: 'tabClosed',
+            profileId
         });
-        
-        if (!response.ok) {
-            throw new Error(`Erro HTTP: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        console.log('Dados recebidos:', data);
-        
-        if (!data) {
-            throw new Error('Nenhum dado recebido do servidor');
-        }
-        
-        self.postMessage(data);
+
     } catch (error) {
-        console.error('Erro na verificação:', error);
-        clearInterval(progressInterval); // Para o intervalo em caso de erro
-        self.postMessage({ 
-            error: error.message || 'Erro ao verificar progresso',
-            details: error.stack || 'Detalhes não disponíveis'
+        console.error('Erro no worker:', error);
+        parentPort.postMessage({
+            type: 'error',
+            error: error.message
         });
     }
 }
 
-self.onerror = function(error) {
-    console.error('Erro no Worker:', error);
-    clearInterval(progressInterval); // Para o intervalo em caso de erro
-    self.postMessage({ 
-        error: error.message || 'Erro interno no Worker',
-        details: 'Erro interno durante o processamento'
-    });
-}; 
+checkDomains(); 
