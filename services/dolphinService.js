@@ -8,9 +8,10 @@ class DolphinService {
             headers: {
                 'Authorization': `Bearer ${config.dolphin.apiKey}`,
                 'Content-Type': 'application/json',
-                'Accept': 'application/json'
+                'Accept': 'application/json',
+                'User-Agent': 'Dolphin-Anty-Client'
             },
-            timeout: 10000 // 10 segundos de timeout
+            timeout: 30000 // aumentado para 30 segundos
         });
     }
 
@@ -23,7 +24,7 @@ class DolphinService {
             });
             
             // Endpoint para listar perfis
-            const response = await this.api.get('/browser_profiles');  // Endpoint atualizado
+            const response = await this.api.get('/browser_profiles');
             console.log('Resposta:', response.data);
             return response.data;
         } catch (error) {
@@ -33,7 +34,7 @@ class DolphinService {
                 status: error.response?.status,
                 headers: error.response?.headers,
                 config: error.config,
-                url: error.config?.url,
+                url: `${config.dolphin.baseUrl}/browser_profiles`,
                 method: error.config?.method
             });
             throw error;
