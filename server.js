@@ -226,6 +226,24 @@ app.post('/api/clear-cache', (req, res) => {
     }
 });
 
+// Rota de teste para o Dolphin
+app.get('/api/test-dolphin', async (req, res) => {
+    try {
+        const dolphinService = require('./services/dolphinService');
+        const profiles = await dolphinService.getProfiles();
+        res.json({
+            success: true,
+            profiles: profiles
+        });
+    } catch (error) {
+        console.error('Erro ao testar Dolphin:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 // Configuração da porta
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () => {
