@@ -7,11 +7,8 @@ class DolphinService {
             baseURL: config.dolphin.baseUrl,
             headers: {
                 'Authorization': `Bearer ${config.dolphin.apiKey}`,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'User-Agent': 'Dolphin-Anty-Client'
-            },
-            timeout: 30000 // aumentado para 30 segundos
+                'Content-Type': 'application/json'
+            }
         });
     }
 
@@ -23,8 +20,8 @@ class DolphinService {
                 headers: this.api.defaults.headers
             });
             
-            // Endpoint para listar perfis
-            const response = await this.api.get('/browser_profiles');
+            // Endpoint correto da documentação
+            const response = await this.api.get('/profiles');
             console.log('Resposta:', response.data);
             return response.data;
         } catch (error) {
@@ -33,33 +30,27 @@ class DolphinService {
                 response: error.response?.data,
                 status: error.response?.status,
                 headers: error.response?.headers,
-                config: error.config,
-                url: `${config.dolphin.baseUrl}/browser_profiles`,
-                method: error.config?.method
+                config: error.config
             });
             throw error;
         }
     }
 
-    // Iniciar um perfil específico
+    // Iniciar um perfil específico (endpoint da documentação)
     async startProfile(profileId) {
-        const response = await this.api.post(`/profiles/${profileId}/start`);
+        const response = await this.api.post(`/start/${profileId}`);
         return response.data;
     }
 
-    // Criar uma nova aba no perfil
-    async createTab(profileId, url) {
-        const response = await this.api.post(`/profiles/${profileId}/tabs`, {
-            url: url
-        });
+    // Criar uma nova aba (endpoint da documentação)
+    async createTab(profileId) {
+        const response = await this.api.post(`/new-tab/${profileId}`);
         return response.data;
     }
 
-    // Executar ação em uma aba
-    async executeAction(profileId, tabId, action) {
-        const response = await this.api.post(`/profiles/${profileId}/tabs/${tabId}/execute`, {
-            action: action
-        });
+    // Executar ação (endpoint da documentação)
+    async executeAction(profileId, action) {
+        const response = await this.api.post(`/action/${profileId}`, action);
         return response.data;
     }
 }
