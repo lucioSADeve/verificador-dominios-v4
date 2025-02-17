@@ -14,8 +14,20 @@ class DolphinService {
 
     // Obter todos os perfis disponíveis
     async getProfiles() {
-        const response = await this.api.get('/profiles');
-        return response.data;
+        try {
+            console.log('Fazendo requisição para:', `${config.dolphin.baseUrl}/profiles`);
+            const response = await this.api.get('/profiles');
+            console.log('Resposta:', response.data);
+            return response.data;
+        } catch (error) {
+            console.error('Erro detalhado:', {
+                message: error.message,
+                response: error.response?.data,
+                status: error.response?.status,
+                headers: error.response?.headers
+            });
+            throw error;
+        }
     }
 
     // Iniciar um perfil específico

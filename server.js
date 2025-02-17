@@ -6,6 +6,7 @@ const domainQueue = require('./domainQueue');
 const { Worker } = require('worker_threads');
 const os = require('os');
 const cors = require('cors');
+const config = require('./config');
 
 const app = express();
 
@@ -230,16 +231,24 @@ app.post('/api/clear-cache', (req, res) => {
 app.get('/api/test-dolphin', async (req, res) => {
     try {
         const dolphinService = require('./services/dolphinService');
+        console.log('Iniciando teste do Dolphin');
         const profiles = await dolphinService.getProfiles();
+        console.log('Perfis obtidos:', profiles);
         res.json({
             success: true,
-            profiles: profiles
+            profiles: profiles,
+            apiUrl: config.dolphin.baseUrl
         });
     } catch (error) {
-        console.error('Erro ao testar Dolphin:', error);
+        console.error('Erro ao testar Dolphin:', {
+            message: error.message,
+            stack: error.stack,
+            response: error.response?.data
+        });
         res.status(500).json({
             success: false,
-            error: error.message
+            error: error.message,
+            details: error.response?.data
         });
     }
 });
