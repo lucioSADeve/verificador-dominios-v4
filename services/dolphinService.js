@@ -7,44 +7,41 @@ class DolphinService {
             baseURL: config.dolphin.baseUrl,
             headers: {
                 'Authorization': `Bearer ${config.dolphin.apiKey}`,
-                'Content-Type': 'application/json'
-            }
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'User-Agent': 'Dolphin-Anty-Client'
+            },
+            timeout: 30000 // 30 segundos de timeout
         });
     }
 
     // Obter todos os perfis disponíveis
     async getProfiles() {
         try {
-            console.log('Configuração da API:', {
-                baseURL: this.api.defaults.baseURL,
-                headers: this.api.defaults.headers
-            });
+            console.log('Obtendo perfis do Dolphin Anty...');
             
-            // Endpoint correto da documentação
-            const response = await this.api.get('/profiles');
+            // Endpoint correto
+            const response = await this.api.get('/browser_profiles');
             console.log('Resposta:', response.data);
             return response.data;
         } catch (error) {
-            console.error('Erro detalhado:', {
+            console.error('Erro ao obter perfis:', {
                 message: error.message,
-                response: error.response?.data,
-                status: error.response?.status,
-                headers: error.response?.headers,
-                config: error.config
+                response: error.response?.data
             });
             throw error;
         }
     }
 
-    // Iniciar um perfil específico (endpoint da documentação)
+    // Iniciar perfil (endpoint da documentação)
     async startProfile(profileId) {
-        const response = await this.api.post(`/start/${profileId}`);
+        const response = await this.api.post(`/browser_profiles/${profileId}/start`);
         return response.data;
     }
 
     // Criar uma nova aba (endpoint da documentação)
     async createTab(profileId) {
-        const response = await this.api.post(`/new-tab/${profileId}`);
+        const response = await this.api.post(`/browser_profiles/${profileId}/tabs`);
         return response.data;
     }
 
