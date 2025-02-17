@@ -7,7 +7,8 @@ class DolphinService {
             baseURL: config.dolphin.baseUrl,
             headers: {
                 'Authorization': `Bearer ${config.dolphin.apiKey}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
             }
         });
     }
@@ -20,8 +21,8 @@ class DolphinService {
                 headers: this.api.defaults.headers
             });
             
-            console.log('Fazendo requisição para:', `${config.dolphin.baseUrl}/profiles`);
-            const response = await this.api.get('/profiles');
+            // Endpoint correto para listar perfis
+            const response = await this.api.get('/profiles/list');
             console.log('Resposta:', response.data);
             return response.data;
         } catch (error) {
@@ -30,7 +31,8 @@ class DolphinService {
                 response: error.response?.data,
                 status: error.response?.status,
                 headers: error.response?.headers,
-                config: error.config
+                config: error.config,
+                url: error.config?.url
             });
             throw error;
         }
