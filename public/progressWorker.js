@@ -19,7 +19,7 @@ async function checkProgress() {
     try {
         console.log('Fazendo requisição de progresso...');
         // Usando URL absoluta para a Vercel
-        const response = await fetch('https://verificadorv5.vercel.app/api/progress', {
+        const response = await fetch('https://verificador-dominios-v4.vercel.app/api/progress', {
             method: 'GET',
             headers: {
                 'Accept': 'application/json',

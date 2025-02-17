@@ -1,6 +1,8 @@
-module.exports = {
+const config = {
     api: {
-        baseUrl: 'https://registro.br/v2/ajax/avail/raw',
+        baseUrl: process.env.NODE_ENV === 'production' 
+            ? 'https://verificador-dominios-v4.vercel.app/api'
+            : 'http://localhost:3000/api',
         requestDelay: 1000 // 1 segundo entre requisições
     },
     server: {
@@ -9,3 +11,5 @@ module.exports = {
     // Configuração para armazenamento temporário na Vercel
     tempStorage: '/tmp'
 };
+
+module.exports = config;

@@ -5,8 +5,16 @@ const path = require('path');
 const domainQueue = require('./domainQueue');
 const { Worker } = require('worker_threads');
 const os = require('os');
+const cors = require('cors');
 
 const app = express();
+
+// Adicione esta configuração do CORS logo após criar o app
+app.use(cors({
+    origin: ['https://verificador-dominios-v4.vercel.app', 'http://localhost:3000'],
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'Accept']
+}));
 
 // Configuração para servir arquivos estáticos
 app.use(express.static(path.join(__dirname, 'public')));
