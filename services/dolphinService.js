@@ -15,6 +15,11 @@ class DolphinService {
     // Obter todos os perfis disponíveis
     async getProfiles() {
         try {
+            console.log('Configuração da API:', {
+                baseURL: this.api.defaults.baseURL,
+                headers: this.api.defaults.headers
+            });
+            
             console.log('Fazendo requisição para:', `${config.dolphin.baseUrl}/profiles`);
             const response = await this.api.get('/profiles');
             console.log('Resposta:', response.data);
@@ -24,7 +29,8 @@ class DolphinService {
                 message: error.message,
                 response: error.response?.data,
                 status: error.response?.status,
-                headers: error.response?.headers
+                headers: error.response?.headers,
+                config: error.config
             });
             throw error;
         }
