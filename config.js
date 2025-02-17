@@ -1,8 +1,6 @@
 const config = {
     api: {
-        baseUrl: process.env.NODE_ENV === 'production' 
-            ? 'https://verificador-dominios-v4.vercel.app/api'
-            : 'http://localhost:3000/api',
+        baseUrl: 'https://registro.br/v2/ajax/avail/raw',  // Esta é a URL correta do registro.br
         requestDelay: 1000 // 1 segundo entre requisições
     },
     server: {

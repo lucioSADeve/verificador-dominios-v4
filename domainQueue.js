@@ -40,10 +40,10 @@ class DomainQueue {
             console.log('Verificando domínio:', item.domain);
 
             try {
-                const response = await axios.get(`${config.api.baseUrl}/${item.domain}`);
+                const response = await axios.get(`https://registro.br/v2/ajax/avail/raw/${item.domain}`);
                 console.log('Resposta para', item.domain, ':', response.data);
                 
-                if (response.data.status === 0) {
+                if (response.data && response.data.status === '0') {
                     console.log('Domínio disponível:', item.domain);
                     this.results.available.push(item);
                 }
