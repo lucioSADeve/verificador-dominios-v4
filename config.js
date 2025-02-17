@@ -1,7 +1,7 @@
 const config = {
     api: {
         baseUrl: 'https://registro.br/v2/ajax/avail/raw',  // Esta é a URL correta do registro.br
-        requestDelay: 1000 // 1 segundo entre requisições
+        requestDelay: 2000 // Aumentado para 2 segundos
     },
     server: {
         port: process.env.PORT || 3000
